@@ -34,14 +34,25 @@ class SwiftLox {
     static func run(_ source: String) {
         let scanner = Scanner(source: source)
         let tokens = scanner.scanTokens();
-        for token in tokens {
-            print(token)
+        let parser = Parser(tokens: tokens)
+        let expression = parser.parse()
+
+        if hadError { return }
+        if let expression = expression {
+            print(ASTPrinter().print(expression))
         }
-        print(source)
     }
 
     static func error(atLine line: Int, withMessage message: String) {
         report(atLine: line, atPlace: "", withMessage: message)
+    }
+
+    static func error(token: Token, message: String) {
+        if (token.kind == .eof) {
+            report(atLine: token.line, atPlace: " at end", withMessage: message)
+        } else {
+            report(atLine: token.line, atPlace: "at `\(token.lexeme)`", withMessage: message)
+        }
     }
 
     static func report(atLine line: Int, atPlace place: String,
