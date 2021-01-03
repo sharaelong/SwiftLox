@@ -8,7 +8,9 @@
 import Foundation
 
 class SwiftLox {
-    static var hadError = false;
+    static var hadError = false
+    static var hadRuntimeError = false
+    static var interpreter = Interpreter()
 
     static func runFile(atPath path: String) {
         guard
@@ -17,10 +19,6 @@ class SwiftLox {
             return
         }
         run(source)
-        // if it had error
-        if hadError {
-            exit(65)
-        }
     }
 
     static func runPrompt() {
@@ -33,13 +31,12 @@ class SwiftLox {
 
     static func run(_ source: String) {
         let scanner = Scanner(source: source)
-        let tokens = scanner.scanTokens();
-        let parser = Parser(tokens: tokens)
-        let expression = parser.parse()
-
+        let tokens = scanner.scanTokens()
         if hadError { return }
-        if let expression = expression {
-            print(ASTPrinter().print(expression))
+
+        let parser = Parser(tokens: tokens)
+        if let expression = parser.parse() {
+            interpreter.interpret(expr: expression)
         }
     }
 
@@ -55,9 +52,14 @@ class SwiftLox {
         }
     }
 
+    static func runtimeError(error: RuntimeError) {
+        print(error.message + "\n[line \(error.token.line)]")
+        hadRuntimeError = true
+    }
+
     static func report(atLine line: Int, atPlace place: String,
                        withMessage message: String) {
-        print("line [\(line)] Error: \(place): \(message)")
+        print("line [\(line)] Error\(place): \(message)")
         hadError = true
     }
 }

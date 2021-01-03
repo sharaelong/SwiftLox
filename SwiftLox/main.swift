@@ -18,6 +18,9 @@ if CommandLine.arguments.count > 2 {
     if SwiftLox.hadError {
         exit(65)
     }
+    if SwiftLox.hadRuntimeError {
+        exit(70)
+    }
 } else {
     SwiftLox.runPrompt()
 }

@@ -18,11 +18,11 @@ struct Token {
 
     let kind: Kind
     let lexeme: Substring
-    let value: Any?
+    let value: AnyHashable?
     let line: Int
 
     init(_ kind: Kind, _ lexeme: Substring,
-         _ value: Any?, _ line: Int) {
+         _ value: AnyHashable?, _ line: Int) {
         self.kind = kind
         self.lexeme = lexeme
         self.value = value

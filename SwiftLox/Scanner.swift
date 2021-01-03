@@ -55,7 +55,8 @@ class Scanner {
     private func match(_ expected: Character) -> Bool {
         if isAtEnd { return false }
         if source[current] != expected { return false }
-        advance()
+
+        current = source.index(after: current)
         return true
     }
 
@@ -77,6 +78,7 @@ class Scanner {
 
         if isAtEnd {
             SwiftLox.error(atLine: line, withMessage: "Unterminated String!")
+            return
         }
 
         advance()
@@ -119,7 +121,7 @@ class Scanner {
         addToken(kind: kind, literal: nil)
     }
 
-    private func addToken(kind: Token.Kind, literal: Any?) {
+    private func addToken(kind: Token.Kind, literal: AnyHashable?) {
         let text = source[start..<current]
         tokens.append(Token(kind, text, literal, line))
     }

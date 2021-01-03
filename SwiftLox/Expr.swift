@@ -10,6 +10,6 @@ import Foundation
 indirect enum Expr {
     case binary(left: Expr, operator: Token, right: Expr)
     case grouping(expression: Expr)
-    case literal(value: Any?)
+    case literal(value: AnyHashable?)
     case unary(operator: Token, right: Expr)
 }
