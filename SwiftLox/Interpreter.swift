@@ -8,6 +8,14 @@
 import Foundation
 
 class Interpreter {
+    let globals = Environment()
+    private var environment: Environment
+
+    init() {
+        environment = globals
+        globals.define(name: "clock", value: ClockFunction())
+    }
+
     private func isTruthy(object: AnyHashable?) -> Bool {
         guard let object = object else { return false }
         if let object = object as? Bool {
@@ -39,12 +47,27 @@ class Interpreter {
         return String(describing: object)
     }
 
-    private func evaluate(expr: Expr) throws -> AnyHashable?  {
+    @discardableResult private func evaluate(expr: Expr) throws -> AnyHashable?  {
         switch expr {
         case .literal(let value):
             return value
         case .grouping(let expression):
             return try evaluate(expr: expression)
+        case .call(let callee, let paren, let arguments):
+            let callee = try evaluate(expr: callee)
+
+            var argumentList: [AnyHashable?] = []
+            for argument in arguments {
+                argumentList.append(try evaluate(expr: argument))
+            }
+
+            guard let function = callee as? LoxCallable else {
+                throw RuntimeError(token: paren, message: "Can only call functions and classes.")
+            }
+            if argumentList.count != function.arity() {
+                throw RuntimeError(token: paren, message: "Expected \(function.arity()) arguments but got \(argumentList.count).")
+            }
+            return try function.call(interpreter: self, arguments: argumentList)
         case .unary(let `operator`, let right):
             let right = try evaluate(expr: right)
             switch `operator`.kind {
@@ -55,6 +78,14 @@ class Interpreter {
                 return !isTruthy(object: right)
             default: fatalError()
             }
+        case .logical(let left, let `operator`, let right):
+            let left = try evaluate(expr: left)
+            if `operator`.kind == .or && isTruthy(object: left) {
+                return left
+            } else if `operator`.kind == .and && !isTruthy(object: left) {
+                return left
+            }
+            return try evaluate(expr: right)
         case .binary(let left, let `operator`, let right):
             let left = try evaluate(expr: left)
             let right = try evaluate(expr: right)
@@ -94,12 +125,66 @@ class Interpreter {
                 return isEqual(left: left, right: right)
             default: fatalError()
             }
+        case .variable(let name):
+            return try environment.get(name: name)
+        case .assign(let name, let value):
+            let value = try evaluate(expr: value)
+            try environment.assign(name: name, value: value)
+            return value
         }
     }
 
-    func interpret(expr: Expr) {
+    func executeBlock(statements: [Stmt], environment: Environment) throws {
+        let previous: Environment = self.environment
         do {
-            try print(stringify(object: evaluate(expr: expr)))
+            self.environment = environment
+            defer { self.environment = previous }
+            for statement in statements {
+                try execute(stmt: statement)
+            }
+        }
+    }
+
+    private func execute(stmt: Stmt) throws {
+        switch stmt {
+        case .expression(let expr):
+            try evaluate(expr: expr)
+        case .if(let condition, let thenBranch, let elseBranch):
+            if isTruthy(object: try evaluate(expr: condition)) {
+                try execute(stmt: thenBranch)
+            } else if let elseBranch = elseBranch {
+                try execute(stmt: elseBranch)
+            }
+        case .function(let name, let params, let body):
+            let function = LoxFunction(name: name, params: params, body: body, closure: environment)
+            environment.define(name: String(name.lexeme), value: function)
+        case .while(let condition, let body):
+            while isTruthy(object: try evaluate(expr: condition)) {
+                try execute(stmt: body)
+            }
+        case .print(let expr):
+            print(stringify(object: try evaluate(expr: expr)))
+        case .variable(let name, let initializer):
+            var value: AnyHashable? = nil
+            if let initializer = initializer {
+                value = try evaluate(expr: initializer)
+            }
+            environment.define(name: String(name.lexeme), value: value)
+        case .return(let keyword, let value):
+            guard let value = value else {
+                throw Return(value: nil)
+            }
+            throw Return(value: try evaluate(expr: value))
+        case .block(let statements):
+            try executeBlock(statements: statements, environment: Environment(enclosing: environment))
+        }
+    }
+
+    func interpret(statements: [Stmt]) {
+        do {
+            for statement in statements {
+                try execute(stmt: statement)
+            }
         } catch {
             let error = error as! RuntimeError
             SwiftLox.runtimeError(error: error)

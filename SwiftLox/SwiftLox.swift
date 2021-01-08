@@ -26,18 +26,17 @@ class SwiftLox {
             print("> ", terminator: "")
             guard let line = readLine() else { break }
             run(line)
+            hadError = false
         }
     }
 
     static func run(_ source: String) {
         let scanner = Scanner(source: source)
         let tokens = scanner.scanTokens()
-        if hadError { return }
-
         let parser = Parser(tokens: tokens)
-        if let expression = parser.parse() {
-            interpreter.interpret(expr: expression)
-        }
+        let statements = parser.parse()
+        if hadError { return }
+        interpreter.interpret(statements: statements)
     }
 
     static func error(atLine line: Int, withMessage message: String) {

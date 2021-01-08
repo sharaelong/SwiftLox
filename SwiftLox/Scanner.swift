@@ -155,7 +155,7 @@ class Scanner {
         case ">": addToken(match("=") ? .greaterEqual: .greater)
         case "/":
             if match("/") {
-                while peek() != "\n" && isAtEnd { advance() }
+                while peek() != "\n" && !isAtEnd { advance() }
             } else {
                 addToken(.slash)
             }

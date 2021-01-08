@@ -52,7 +52,46 @@ class Parser {
     }
 
     private func expression() throws -> Expr {
-        return try equality()
+        return try assignment()
+    }
+
+    private func assignment() throws -> Expr {
+        let expr = try or()
+
+        if (match(kinds: .equal)) {
+            let equals = previous()
+            let value = try assignment()
+
+            if case .variable(let name) = expr {
+                return Expr.assign(name: name, value: value)
+            }
+
+            throw error(token: equals, message: "Invalid assignment target")
+        }
+
+        return expr
+    }
+
+    private func or() throws -> Expr {
+        var expr = try and()
+        while (match(kinds: .or)) {
+            let `operator` = previous()
+            let right = try and()
+            expr = .logical(left: expr, operator: `operator`, right: right)
+        }
+
+        return expr
+    }
+
+    private func and() throws -> Expr {
+        var expr = try equality()
+        while (match(kinds: .and)) {
+            let `operator` = previous()
+            let right = try equality()
+            expr = .logical(left: expr, operator: `operator`, right: right)
+        }
+
+        return expr
     }
 
     private func equality() throws -> Expr {
@@ -110,10 +149,37 @@ class Parser {
             return Expr.unary(operator: `operator`, right: right)
         }
 
-        return try primary()
+        return try call()
     }
 
-    private func error(token: Token, message: String) -> ParseError {
+    private func call() throws -> Expr {
+        var expr = try primary()
+        while true {
+            if match(kinds: .leftParen) {
+                expr = try finishCall(callee: expr);
+            } else {
+                break;
+            }
+        }
+        return expr
+    }
+
+    private func finishCall(callee: Expr) throws -> Expr {
+        var arguments: [Expr] = []
+        if (!check(kind: .rightParen)) {
+            repeat {
+                if arguments.count >= 255 {
+                    error(token: peek(), message: "Can't have more than 255 arguments.")
+                }
+                arguments.append(try expression())
+            } while match(kinds: .comma)
+        }
+
+        let paren: Token = try consume(kind: .rightParen, message: "Expect ')' after arguments.")
+        return .call(callee: callee, paren: paren, arguments: arguments)
+    }
+
+    @discardableResult private func error(token: Token, message: String) -> ParseError {
         SwiftLox.error(token: token, message: message)
         return .parseerror
     }
@@ -150,6 +216,10 @@ class Parser {
             return Expr.literal(value: previous().value)
         }
 
+        if (match(kinds: .identifier)) {
+            return Expr.variable(name: previous())
+        }
+
         if (match(kinds: .leftParen)) {
             let expr = try expression()
             try consume(kind: .rightParen, message: "Expected ')' after expression.")
@@ -159,7 +229,161 @@ class Parser {
         throw error(token: peek(), message: "Expect Expression.")
     }
 
-    func parse() -> Expr? {
-        try? expression()
+    private func printStatement() throws -> Stmt {
+        let value = try expression()
+        try consume(kind: .semicolon, message: "Expect ';' after value.")
+        return Stmt.print(expression: value)
+    }
+
+    private func forStatement() throws -> Stmt {
+        try consume(kind: .leftParen, message: "Expect '(' after 'for'.")
+
+        var initializer: Stmt? = nil
+        if (match(kinds: .semicolon)) {
+            initializer = nil
+        } else if (match(kinds: .var)) {
+            initializer = try varDeclaration()
+        } else {
+            initializer = try expressionStatement()
+        }
+
+        var condition: Expr? = nil
+        if !check(kind: .semicolon) {
+            condition = try expression()
+        }
+        try consume(kind: .semicolon, message: "Expect ';' after loop condition.")
+
+        var increment: Expr? = nil
+        if !check(kind: .semicolon) {
+            increment = try expression()
+        }
+        try consume(kind: .rightParen, message: "Expect ')' after for clauses.")
+
+        var body = try statement()
+        if let increment = increment {
+            body = Stmt.block(statements: [body, Stmt.expression(expression: increment)])
+        }
+        if condition == nil { condition = Expr.literal(value: true) }
+        body = Stmt.while(condition: condition!, body: body)
+        if let initializer = initializer {
+            body = Stmt.block(statements: [initializer, body])
+        }
+
+        return body
+    }
+
+    private func ifStatement() throws -> Stmt {
+        try consume(kind: .leftParen, message: "Expect '(' after 'if'.")
+        let condition = try expression();
+        try consume(kind: .rightParen, message: "Expect ')' after if condition.")
+
+        let thenBranch = try statement()
+        var elseBranch: Stmt? = nil
+        if (match(kinds: .else)) {
+            elseBranch = try statement()
+        }
+
+        return Stmt.if(condition: condition, thenBranch: thenBranch, elseBranch: elseBranch)
+    }
+
+    private func whileStatement() throws -> Stmt {
+        try consume(kind: .leftParen, message: "Expect '(' after 'while'.")
+        let condition = try expression()
+        try consume(kind: .rightParen, message: "Expect ')' after while condition.")
+        let body = try statement()
+
+        return Stmt.while(condition: condition, body: body)
+    }
+
+    private func returnStatement() throws -> Stmt {
+        let keyword = previous()
+        var value: Expr? = nil
+        if !check(kind: .semicolon) {
+            value = try expression()
+        }
+
+        try consume(kind: .semicolon, message: "Expect ';' after return value.")
+        return .return(keyword: keyword, value: value)
+    }
+
+    private func expressionStatement() throws -> Stmt {
+        let expr = try expression()
+        try consume(kind: .semicolon, message: "Expect ';' after value.")
+        return Stmt.expression(expression: expr)
+    }
+
+    private func block() throws -> [Stmt] {
+        var statements: [Stmt] = []
+
+        while !check(kind: .rightBrace) && !isAtEnd() {
+            if let statement = declaration() {
+                statements.append(statement)
+            }
+        }
+        try consume(kind: .rightBrace, message: "Expect '}' after block.")
+        return statements
+    }
+
+    private func statement() throws -> Stmt {
+        if match(kinds: .print) { return try printStatement() }
+        if match(kinds: .for) { return try forStatement() }
+        if match(kinds: .if) { return try ifStatement() }
+        if match(kinds: .while) { return try whileStatement() }
+        if match(kinds: .return) { return try returnStatement() }
+        if match(kinds: .leftBrace) { return .block(statements: try block()) }
+        return try expressionStatement()
+    }
+
+    private func function(kind: String) throws -> Stmt {
+        let name = try consume(kind: .identifier, message: "Expect \(kind) name.")
+        try consume(kind: .leftParen, message: "Expect '(' after \(kind) name.")
+
+        var parameters: [Token] = []
+        if !check(kind: .rightParen) {
+            repeat {
+                if parameters.count >= 255 {
+                    error(token: peek(), message: "Can't have more than 255 parameters.")
+                }
+                parameters.append(try consume(kind: .identifier, message: "Expect parameter name."))
+            } while match(kinds: .comma)
+        }
+        try consume(kind: .rightParen, message: "Expect ')' after parameters.")
+
+        try consume(kind: .leftBrace, message: "Expect '{' before \(kind) body.")
+        let body = try block()
+        return .function(name: name, params: parameters, body: body)
+    }
+
+    private func varDeclaration() throws -> Stmt {
+        let name = try consume(kind: .identifier, message: "Expect variable name.")
+
+        var initializer: Expr? = nil
+        if (match(kinds: .equal)) {
+            initializer = try expression()
+        }
+
+        try consume(kind: .semicolon, message: "Expect ';' after variable declaration")
+        return Stmt.variable(name: name, initializer: initializer)
+    }
+
+    private func declaration() -> Stmt? {
+        do {
+            if match(kinds: .fun) { return try function(kind: "function") }
+            if match(kinds: .var) { return try varDeclaration() }
+            return try statement()
+        } catch {
+            synchronize()
+            return nil
+        }
+    }
+
+    func parse() -> [Stmt] {
+        var statements: [Stmt] = []
+        while (!isAtEnd()) {
+            if let statement = declaration() {
+                statements.append(statement)
+            }
+        }
+        return statements
     }
 }
