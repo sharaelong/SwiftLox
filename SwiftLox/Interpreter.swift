@@ -10,6 +10,7 @@ import Foundation
 class Interpreter {
     let globals = Environment()
     private var environment: Environment
+    private var locals: [Expr : Int] = [:]
 
     init() {
         environment = globals
@@ -45,6 +46,19 @@ class Interpreter {
             return text.removingSuffix(".0")
         }
         return String(describing: object)
+    }
+
+    func resolve(expr: Expr, depth: Int) {
+        locals[expr] = depth
+    }
+
+    private func lookUpVariable(name: Token, expr: Expr) throws -> AnyHashable? {
+        let distance = locals[expr]
+        if let distance = distance {
+            return environment.getAt(distance: distance, name: String(name.lexeme))
+        } else {
+            return try globals.get(name: name)
+        }
     }
 
     @discardableResult private func evaluate(expr: Expr) throws -> AnyHashable?  {
@@ -126,10 +140,15 @@ class Interpreter {
             default: fatalError()
             }
         case .variable(let name):
-            return try environment.get(name: name)
+            return try lookUpVariable(name: name, expr: expr)
         case .assign(let name, let value):
             let value = try evaluate(expr: value)
-            try environment.assign(name: name, value: value)
+            let distance = locals[expr]
+            if let distance = distance {
+                environment.assignAt(distance: distance, name: name, value: value)
+            } else {
+                try globals.assign(name: name, value: value)
+            }
             return value
         }
     }
@@ -170,7 +189,7 @@ class Interpreter {
                 value = try evaluate(expr: initializer)
             }
             environment.define(name: String(name.lexeme), value: value)
-        case .return(let keyword, let value):
+        case .return(_, let value):
             guard let value = value else {
                 throw Return(value: nil)
             }

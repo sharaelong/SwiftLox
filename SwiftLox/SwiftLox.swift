@@ -36,6 +36,11 @@ class SwiftLox {
         let parser = Parser(tokens: tokens)
         let statements = parser.parse()
         if hadError { return }
+        
+        let resolver = Resolver(interpreter: interpreter)
+        resolver.resolve(statements: statements)
+        if hadError { return }
+
         interpreter.interpret(statements: statements)
     }
 

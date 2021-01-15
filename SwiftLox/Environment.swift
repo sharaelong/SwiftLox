@@ -24,6 +24,18 @@ class Environment {
         values[name] = value
     }
 
+    func ancestor(distance: Int) -> Environment {
+        var environment = self
+        for _ in 0..<distance {
+            environment = environment.enclosing!
+        }
+        return environment
+    }
+
+    func getAt(distance: Int, name: String) -> AnyHashable? {
+        return ancestor(distance: distance).values[name]!
+    }
+
     func get(name: Token) throws -> AnyHashable? {
         if let value = values[String(name.lexeme)] {
             return value
@@ -34,6 +46,10 @@ class Environment {
         }
 
         throw RuntimeError.init(token: name, message: "Undefined Variable '\(name.lexeme)'.")
+    }
+
+    func assignAt(distance: Int, name: Token, value: AnyHashable?) {
+        ancestor(distance: distance).values[String(name.lexeme)] = value
     }
 
     func assign(name: Token, value: AnyHashable?) throws {
